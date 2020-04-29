@@ -1,0 +1,20 @@
+# nfpm example config file
+name: "goshimmerctl"
+arch: "all"
+platform: "linux"
+version: "v${GOSHIMMERCTL_VERSION}"
+depends:
+      - goshimmer
+      - python3
+maintainer: "Bernardo A. Rodrigues <bernardo.araujo@iota.org>"
+description: GoShimmer helper tools.
+license: "Apache 2.0"
+bindir: "/usr/bin"
+files:
+      "goshimmer_dashboard": "/usr/bin/goshimmer_dashboard"
+      "goshimmer_clean_db": "/usr/bin/goshimmer_clean_db"
+
+overrides:
+  deb:
+    scripts:
+      postinstall: ./deb_scripts/postinst

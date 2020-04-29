@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+
+chmod +x /usr/bin/goshimmer_clean_db
+chmod +x /usr/bin/goshimmer_dashboard
+
+exit 0
