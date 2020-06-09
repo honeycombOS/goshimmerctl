@@ -224,10 +224,16 @@ def getLocal():
             sys.exit(1)
 
 def getStatus():
+    local = getLocal()
+    if local == "/var/lib/goshimmer":
+        local = "/var/lib/goshimmer (SD Card)"
+    elif local == "/mnt/goshimmer":
+        local = "/mnt/goshimmer (USB Volume)"
+
     status = {
         "version": getGoShimmerVersion(),
         "node": getNodeStatus(),
-        "local": getLocal(),
+        "local": local,
         "dashboardStatus": getDashboardStatus(),
         "dashboardPort": getDashboardPort()
     }
