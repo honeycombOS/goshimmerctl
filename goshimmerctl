@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+
+import os
+import json
+import errno
+import sys
+import argparse
+import subprocess
+import shutil
+
+def goshimmerctl_node(args):
+    if args.node == "on":
+        # check if service is running
+        if not os.system('systemctl is-active --quiet goshimmer'):  # will return 0 for active else inactive.
+            print('GoShimmer is already running!')
+            sys.exit(1)
+
+        if not os.system('systemctl is-active --quiet hornet'):  # will return 0 for active else inactive.
+            print('Hornet is already running! You cannot run both nodes at the same time.')
+            sys.exit(1)
+
+        print("Starting GoShimmer Systemd Service.")
+        os.system('systemctl start goshimmer')
+    else:
+        print("Stopping GoShimmer Systemd Service. Please be patient and wait for graceful shutdown.")
+        os.system('systemctl stop goshimmer')
+
+def goshimmerctl_dashboard(args):
+    config_file = "/var/lib/goshimmer/config.json"
+
+    lines = ""
+    with open(config_file, "r") as f:
+        for line in f.readlines():
+            lines += line.replace("\n", "")
+
+    config_json = json.loads(lines)
+
+    if args.dashboard == "on":
+        config_json["dashboard"]["bindAddress"] = "0.0.0.0:8081"
+    else:
+        config_json["dashboard"]["bindAddress"] = "127.0.0.1:8081"
+
+    try:
+        f = open(config_file, "w")
+        f.write(json.dumps(config_json, indent=1))
+        f.close()
+
+        if args.dashboard == "on":
+            print("GoShimmer Dashboard was enabled.")
+        else:
+            print("GoShimmer Dashboard was disabled.")
+
+    except IOError as e:
+        errorn, strerror = e.args
+        if errorn == errno.EACCES:
+            print("You need root permissions to do this!")
+            sys.exit(1)
+
+def goshimmerctl_cleandb():
+        db_mainnet = "/var/lib/goshimmer/mainnetdb"
+
+        db_exists = os.path.isdir(db_mainnet)
+
+        if not db_exists:
+            print("GoShimmer db is already clean. Nothing to do.")
+        else:
+            try:
+                shutil.rmtree(db_mainnet)
+                print("GoShimmer mainnet db has been cleaned.")
+            except IOError as e:
+                errorn, strerror = e.args
+                if errorn == errno.EACCES:
+                    print("You need root permissions to do this!")
+                    sys.exit(1)
+
+def goshimmerctl_log():
+    os.system('journalctl -u goshimmer') #ToDo: improve this so it shows only the tail
+
+def getGoShimmerVersion():
+    try:
+        status, output = subprocess.getstatusoutput('goshimmer --version')
+        if status != 0:
+            return "unknown"
+        else:
+            return output
+    except:
+        return "unknown"
+
+
+def getNodeStatus():
+    try:
+        cmd = 'systemctl status goshimmer'
+        proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+        stdout_list = proc.communicate()[0].decode("utf-8").split('\n')
+        for line in stdout_list:
+            if 'Active:' in line:
+                if '(running)' in line and 'since' in line:
+                    return {
+                        "status": 'running',
+                        "since": line.split('since')[1].strip()
+                    }
+                elif 'inactive' in line:
+                    return {
+                        "status": 'inactive'
+                    }
+                elif 'since' in line:
+                    return {
+                        "status": 'not-running',
+                        "since": line.split('since')[1].strip()
+                    }
+        return {
+            "status": "unknown"
+        }
+    except:
+        return {
+            "status": "error"
+        }
+
+def getDashboardStatus():
+    try:
+        lines = ""
+        with open("/var/lib/goshimmer/config.json", "r") as f:
+            data = json.load(f)
+            if '0.0.0.0' in data["dashboard"]["bindAddress"]:
+                return 'enabled'
+            else:
+                return 'disabled'
+    except IOError as e:
+        errorn, strerror = e.args
+        if errorn == errno.EACCES:
+            print("You need root permissions to do this!")
+            sys.exit(1)
+
+
+def getDashboardPort():
+    try:
+        lines = ""
+        with open("/var/lib/goshimmer/config.json", "r") as f:
+            data = json.load(f)
+            if '0.0.0.0' in data["dashboard"]["bindAddress"]:
+                # split port
+                return data["dashboard"]["bindAddress"].split(':')[1]
+            else:
+                return False
+    except IOError as e:
+        errorn, strerror = e.args
+        if errorn == errno.EACCES:
+            print("You need root permissions to do this!")
+            sys.exit(1)
+
+
+def getStatus():
+    status = {
+        "version": getGoShimmerVersion(),
+        "node": getNodeStatus(),
+        "dashboardStatus": getDashboardStatus(),
+        "dashboardPort": getDashboardPort()
+    }
+    return json.dumps(status, indent=1)
+
+
+def main():
+    # check for sudo
+    if os.geteuid() != 0:
+        print("You need root permissions to do this!")
+        sys.exit(1)
+
+    # bootstrap parsers
+    parser = argparse.ArgumentParser(prog='goshimmerctl')
+    subparsers = parser.add_subparsers(help='goshimmerctl subcommands', dest='cmd')
+
+    parser_node = subparsers.add_parser('node', help='start/stop node')
+    parser_node.add_argument('node', choices=['on', 'off'], help='on starts, off stops')
+
+    parser_status = subparsers.add_parser('status', help='show node status')
+
+    parser_dashboard = subparsers.add_parser('dashboard', help='enable/disable dashboard')
+    parser_dashboard.add_argument('dashboard', choices=['on', 'off'], help='on enables, off disables')
+
+    parser_clean = subparsers.add_parser('cleandb', help='clean db')
+
+    parser_log = subparsers.add_parser('log', help='show log')
+
+    args = parser.parse_args()
+
+    # check if service is running
+    status = os.system('systemctl is-active --quiet goshimmer') # will return 0 for active else inactive.
+    if not status and args.cmd != 'node' and args.cmd != 'status' and args.cmd != '':
+        try:
+            print("Stopping goshimmer.service.")
+            os.system("systemctl stop goshimmer")
+        except:
+            print("Error while stopping goshimmer systemd service.")
+
+    # no cmd?
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    # start/stop node?
+    if args.cmd == 'node':
+        goshimmerctl_node(args)
+
+    if args.cmd == 'status':
+        print(getStatus())
+
+    # enable/disable dashboard?
+    if args.cmd == 'dashboard':
+        goshimmerctl_dashboard(args)
+
+    if args.cmd == 'cleandb':
+        goshimmerctl_cleandb()
+
+    if args.cmd == 'log':
+        goshimmerctl_log()
+
+    # if service was running, restart it
+    if not status and args.cmd != 'node' and args.cmd != 'status':
+        print(
+            "Restarting goshimmer.service.\nIf you note systemd errors, stop the service, run \'goshimmerctl cleandb\' and restart the service.")
+        os.system('systemctl start goshimmer')
+
+if __name__ == "__main__":
+    main()
